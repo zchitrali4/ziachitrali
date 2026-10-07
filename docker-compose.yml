@@ -1,0 +1,10 @@
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - ieds-mongo:/data/db
+
+volumes:
+  ieds-mongo:
