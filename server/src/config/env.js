@@ -49,7 +49,7 @@ export const env = {
   mail: {
     host: process.env.SMTP_HOST || '',
     port: Number(process.env.SMTP_PORT || 587),
-    secure: process.env.SMTP_SECURE === 'true',
+    secure: mailSecure(),
     user: process.env.SMTP_USER || '',
     pass: process.env.SMTP_PASS || '',
     from: process.env.MAIL_FROM || 'Zia Chitrali <desk@ziachitrali.local>',
@@ -59,13 +59,22 @@ export const env = {
   },
 };
 
+function mailSecure() {
+  const flag = String(process.env.SMTP_SECURE || '').toLowerCase();
+  if (flag === 'true') return true;
+  if (flag === 'false') return false;
+  return Number(process.env.SMTP_PORT || 587) === 465;
+}
+
 function cookieSite() {
   const chosen = String(process.env.COOKIE_SAMESITE || '').toLowerCase();
   if (chosen === 'none' || chosen === 'lax' || chosen === 'strict') return chosen;
   try {
     const site = new URL(process.env.PUBLIC_SITE_URL || 'http://localhost:5173');
     const api = new URL(process.env.PUBLIC_API_URL || `http://localhost:${Number(process.env.PORT || 5000)}`);
-    if (site.host !== api.host) return 'none';
+    const splitHosts = site.host !== api.host;
+    const bothHttps = site.protocol === 'https:' && api.protocol === 'https:';
+    if (splitHosts && bothHttps) return 'none';
   } catch {
     return 'lax';
   }

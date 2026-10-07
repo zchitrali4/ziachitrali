@@ -5,7 +5,7 @@ import { createOpaqueToken, hashToken, signAccessToken } from '../utils/security
 import { EmailVerification, PasswordReset, Role, Session, User } from '../models.js';
 import { presentUser } from '../presenters.js';
 import { lookupCountryFromIp, normalizeCountry } from './geo.js';
-import { devLink, sendPasswordReset, sendVerification, sendWelcome } from './mailService.js';
+import { devLink, sendPasswordReset, sendVerification, sendWelcome, verificationDelivery } from './mailService.js';
 
 const REFRESH_COOKIE = 'ieds_refresh';
 
@@ -77,20 +77,23 @@ export async function registerUser({ name, email, password, userAgent, ip, count
   await user.populate('role');
   const verify = await createEmailToken(user._id);
   const verifyUrl = `${env.publicSiteUrl}/verify-email?token=${verify}`;
-  try {
-    await sendWelcome({ name: user.name, email: user.email, verifyUrl });
-  } catch (error) {
-    console.error('[mail]', error.message);
-  }
+  const delivery = await deliverVerification(() => sendWelcome({ name: user.name, email: user.email, verifyUrl }), verifyUrl);
   const session = await issueSession(user, { rememberMe: true, userAgent, ip });
-  const devVerifyUrl = devLink(verifyUrl);
   return {
     user: publicUser(user),
     accessToken: session.accessToken,
     refresh: session,
-    verificationSent: env.mail.ready,
-    ...(devVerifyUrl ? { devVerifyUrl } : {}),
+    ...delivery,
   };
+}
+
+async function deliverVerification(send, url) {
+  try {
+    return verificationDelivery(await send(), url);
+  } catch (error) {
+    console.error('[mail]', error.message);
+    return verificationDelivery({ status: 'failed' }, url);
+  }
 }
 
 async function createEmailToken(userId) {
@@ -189,26 +192,26 @@ export async function resetPassword({ token, password }) {
 export async function verifyEmail(token) {
   const record = await EmailVerification.findOne({ tokenHash: hashToken(token || '') });
   if (!record || record.expiresAt < new Date()) throw new ApiError(400, 'This verification link is invalid or expired.');
-  await User.updateOne({ _id: record.user }, { emailVerified: true });
-  await EmailVerification.deleteMany({ user: record.user });
+  const user = await User.findById(record.user);
+  if (!user || user.status !== 'active') throw new ApiError(400, 'This verification link is invalid or expired.');
+  if (!user.emailVerified) {
+    user.emailVerified = true;
+    await user.save();
+  }
+  if (!record.usedAt) {
+    record.usedAt = new Date();
+    await record.save();
+  }
+  return { verified: true };
 }
 
 export async function resendVerification(userId) {
   const user = await User.findById(userId);
   if (!user) throw new ApiError(404, 'Account not found.');
-  if (user.emailVerified) return {};
+  if (user.emailVerified) return { alreadyVerified: true };
   const token = await createEmailToken(user._id);
   const verifyUrl = `${env.publicSiteUrl}/verify-email?token=${token}`;
-  try {
-    await sendVerification({ name: user.name, email: user.email, verifyUrl });
-  } catch (error) {
-    console.error('[mail]', error.message);
-  }
-  const devVerifyUrl = devLink(verifyUrl);
-  return {
-    verificationSent: env.mail.ready,
-    ...(devVerifyUrl ? { devVerifyUrl } : {}),
-  };
+  return deliverVerification(() => sendVerification({ name: user.name, email: user.email, verifyUrl }), verifyUrl);
 }
 
 export { REFRESH_COOKIE, publicUser };

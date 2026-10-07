@@ -33,7 +33,7 @@ The seed creates roles, navigation, site settings, and one admin account. It doe
 2. In Render, create a Blueprint from this repository, or a Web Service with the build and start commands in `render.yaml`.
 3. Set `MONGODB_URI`, `ADMIN_EMAIL`, and a long `ADMIN_PASSWORD`. Render generates `JWT_ACCESS_SECRET`. Leave `PUBLIC_SITE_URL` empty unless the site lives on another domain; Render fills it from the service URL.
 4. After the first successful deploy, open the Render shell and run `npm run seed --prefix server` once. That creates the member role the signup form needs, plus the admin account.
-5. For password reset and email verification, set `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, and `MAIL_FROM`. Without those, new accounts can still sign in. The verification email is simply not sent.
+5. For password reset and email verification, set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `MAIL_FROM`. Use port 587 with `SMTP_SECURE=false`, or port 465 with `SMTP_SECURE=true`. Without those, new accounts can still sign in. In development the account page shows the confirmation link. In production that link is only sent by email.
 6. If the public site is hosted somewhere else, set `PUBLIC_SITE_URL`, `PUBLIC_API_URL`, and `CORS_ORIGIN` to those exact `https` origins, and set `VITE_API_URL` to `https://your-api.onrender.com/api` before the client build.
 
 Uploaded images are stored on the service disk and disappear when Render restarts or redeploys. Orders and gifts stay `pending_payment` until PayFast credentials are set and a signed callback confirms them.

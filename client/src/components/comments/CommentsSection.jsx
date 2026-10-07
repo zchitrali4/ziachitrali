@@ -63,7 +63,9 @@ export function CommentsSection({ targetType, targetId }) {
           {comment.status !== 'approved' ? <p className="meta">Status: {comment.status}</p> : null}
         </article>
       ))}
-      {user ? (
+      {user && !user.emailVerified ? (
+        <p className="notice"><Link to="/account">{t(language, 'verifyToComment')}</Link></p>
+      ) : user ? (
         <form className="stack" onSubmit={onSubmit}>
           <label className="field">
             <span>{t(language, 'addComment')}</span>

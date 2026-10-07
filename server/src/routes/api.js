@@ -67,6 +67,7 @@ router.post('/auth/register', authLimit, [
     accessToken: result.accessToken,
     user: result.user,
     verificationSent: result.verificationSent,
+    mailStatus: result.mailStatus,
     ...(result.devVerifyUrl ? { devVerifyUrl: result.devVerifyUrl } : {}),
   }, null, 201);
 }));
@@ -129,12 +130,13 @@ router.post('/auth/reset-password', authLimit, [
   send(res, { reset: true });
 }));
 
-router.post('/auth/verify-email', asyncHandler(async (req, res) => {
-  await verifyEmail(req.body.token);
-  send(res, { verified: true });
+router.post('/auth/verify-email', authLimit, [
+  body('token').isString().trim().isLength({ min: 20, max: 200 }).withMessage('This verification link is invalid or expired.'),
+], validate, asyncHandler(async (req, res) => {
+  send(res, await verifyEmail(req.body.token));
 }));
 
-router.post('/auth/resend-verification', requireAuth, asyncHandler(async (req, res) => {
+router.post('/auth/resend-verification', authLimit, requireAuth, asyncHandler(async (req, res) => {
   send(res, await resendVerification(req.user.id));
 }));
 

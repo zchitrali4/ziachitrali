@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '../../api/index.js';
+import { getAccessToken } from '../../api/http.js';
 import { PageHead } from '../../components/public/PageHead.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { usePreferences } from '../../context/PreferencesContext.jsx';
@@ -219,37 +220,57 @@ export function ResetPasswordPage() {
 
 export function VerifyEmailPage() {
   const { language } = usePreferences();
-  const [params] = useSearchParams();
-  const [message, setMessage] = useState('');
+  const { user, status, refresh, updateUser } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const token = params.get('token') || '';
+  const [phase, setPhase] = useState('working');
   const [error, setError] = useState('');
+  const ran = useRef('');
 
   useEffect(() => {
-    const token = params.get('token') || '';
-    if (!token) {
-      setError(t(language, 'verifyMissing'));
-      return undefined;
-    }
-    let cancel = false;
+    if (!token || ran.current === token) return undefined;
+    ran.current = token;
     authApi.verify({ token })
-      .then(() => { if (!cancel) setMessage(t(language, 'emailVerified')); })
-      .catch((err) => { if (!cancel) setError(normalizeError(err).message); });
-    return () => { cancel = true; };
-  }, [language, params]);
+      .then(async () => {
+        sessionStorage.setItem('ieds.emailVerified', '1');
+        const signedIn = await refresh();
+        if (signedIn && getAccessToken()) {
+          try {
+            const me = await authApi.me();
+            updateUser(me.data);
+          } catch {
+            /* The refreshed account is already loaded. */
+          }
+        }
+        setPhase('ok');
+        setParams({}, { replace: true });
+      })
+      .catch((err) => {
+        setPhase('error');
+        setError(normalizeError(err).message);
+      });
+    return undefined;
+  }, [token, refresh, setParams, updateUser]);
+
+  const remembered = !token && sessionStorage.getItem('ieds.emailVerified') === '1';
+  const shown = phase === 'working' && !token ? (remembered ? 'ok' : 'missing') : phase;
+  const signedIn = status === 'ready' && Boolean(user);
 
   return (
     <AuthFrame title={t(language, 'verifyTitle')} lede={t(language, 'verifyLede')} path="/verify-email">
-      {message ? (
+      {shown === 'ok' ? (
         <div className="stack">
-          <p className="form-ok">{message}</p>
-          <Link className="btn" to="/account">{t(language, 'account')}</Link>
+          <p className="form-ok">{signedIn ? t(language, 'emailVerified') : t(language, 'emailVerifiedSignIn')}</p>
+          <Link className="btn" to={signedIn ? '/account' : '/login'}>{signedIn ? t(language, 'account') : t(language, 'signIn')}</Link>
         </div>
-      ) : error ? (
+      ) : shown === 'error' || shown === 'missing' ? (
         <div className="stack">
-          <p className="form-error">{error}</p>
-          <Link className="btn" to="/account">{t(language, 'account')}</Link>
+          <p className="form-error">{shown === 'missing' ? t(language, 'verifyMissing') : error}</p>
+          <p className="meta">{t(language, 'verifyExpiredHint')}</p>
+          <Link className="btn" to={signedIn ? '/account' : '/login'}>{signedIn ? t(language, 'account') : t(language, 'signIn')}</Link>
         </div>
       ) : (
-        <p className="meta">{t(language, 'sending')}</p>
+        <p className="meta">{t(language, 'verifyWorking')}</p>
       )}
     </AuthFrame>
   );

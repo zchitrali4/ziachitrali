@@ -2,7 +2,7 @@ import { env } from './config/env.js';
 import { contentEnum, resolveContentKey } from './config/catalog.js';
 import { blankTranslations, previewStore } from './previewCatalog.js';
 import { checkPreviewPassword, dropPreviewToken, dropPreviewUser, hashPreviewPassword, issuePreviewAccess, issuePreviewSession, userIdFromToken } from './previewSession.js';
-import { announceContent, announceProduct, devLink, sendPasswordReset, sendVerification, sendWelcome } from './services/mailService.js';
+import { announceContent, announceProduct, devLink, sendPasswordReset, sendVerification, sendWelcome, verificationDelivery } from './services/mailService.js';
 import { createOpaqueToken, hashToken } from './utils/security.js';
 import { cleanHtml } from './utils/sanitize.js';
 import { saveImageUpload } from './uploads.js';
@@ -150,10 +150,10 @@ export function previewActor(req) {
   return publicPreviewUser(userById(id) || (id === 'u-admin' ? PREVIEW_USER : null));
 }
 
-function setSession(res, user) {
+function setSession(res, user, extra = {}) {
   const session = issuePreviewSession(user.id);
   res.cookie('ieds_refresh', session.refresh, sessionCookie());
-  return ok(res, { accessToken: session.access, user: publicPreviewUser(user) });
+  return ok(res, { accessToken: session.access, user: publicPreviewUser(user), ...extra });
 }
 
 function guard(req, res) {
@@ -188,8 +188,8 @@ async function handleAuth(req, res) {
     };
     previewStore.users.push(user);
     const verifyUrl = `${env.publicSiteUrl}/verify-email?token=${issuePreviewToken('emailTokens', user.id, 24)}`;
-    await sendWelcome({ name: user.name, email: user.email, verifyUrl });
-    return setSession(res, user);
+    const delivery = await deliverPreviewVerification(() => sendWelcome({ name: user.name, email: user.email, verifyUrl }), verifyUrl);
+    return setSession(res, user, delivery);
   }
   if (req.method === 'POST' && req.path === '/auth/login') {
     const email = String(req.body?.email || '').toLowerCase();
@@ -250,21 +250,21 @@ async function handleAuth(req, res) {
     return ok(res, { reset: true });
   }
   if (req.method === 'POST' && req.path === '/auth/verify-email') {
-    const record = takePreviewToken('emailTokens', req.body?.token);
+    const record = findPreviewToken('emailTokens', req.body?.token);
     const user = record ? userById(record.userId) : null;
-    if (!user) return fail(res, 400, 'This verification link is invalid or expired.');
+    if (!user || user.status === 'disabled') return fail(res, 400, 'This verification link is invalid or expired.');
     user.emailVerified = true;
+    record.usedAt = Date.now();
     return ok(res, { verified: true });
   }
   if (req.method === 'POST' && req.path === '/auth/resend-verification') {
     const id = userIdFromToken(bearerToken(req));
     const user = id ? (userById(id) || (id === 'u-admin' ? PREVIEW_USER : null)) : null;
     if (!user) return fail(res, 401, 'Sign in required.');
-    if (user.emailVerified) return ok(res, {});
+    if (user.emailVerified) return ok(res, { alreadyVerified: true });
     const verifyUrl = `${env.publicSiteUrl}/verify-email?token=${issuePreviewToken('emailTokens', user.id, 24)}`;
-    await sendVerification({ name: user.name, email: user.email, verifyUrl });
-    const devVerifyUrl = devLink(verifyUrl);
-    return ok(res, devVerifyUrl ? { devVerifyUrl } : {});
+    const delivery = await deliverPreviewVerification(() => sendVerification({ name: user.name, email: user.email, verifyUrl }), verifyUrl);
+    return ok(res, delivery);
   }
   return false;
 }
@@ -279,6 +279,22 @@ function issuePreviewToken(bucket, userId, hours) {
     expiresAt: now + hours * 60 * 60 * 1000,
   });
   return raw;
+}
+
+async function deliverPreviewVerification(send, url) {
+  try {
+    return verificationDelivery(await send(), url);
+  } catch (error) {
+    console.error('[mail]', error.message);
+    return verificationDelivery({ status: 'failed' }, url);
+  }
+}
+
+function findPreviewToken(bucket, raw) {
+  const tokenHash = hashToken(String(raw || ''));
+  const record = previewStore[bucket].find((item) => item.tokenHash === tokenHash);
+  if (!record || record.expiresAt < Date.now()) return null;
+  return record;
 }
 
 function takePreviewToken(bucket, raw) {

@@ -58,9 +58,36 @@ export function AccountLayout() {
 }
 
 export function AccountHome() {
-  const { user, logout, logoutAll } = useAuth();
+  const { user, logout, logoutAll, updateUser } = useAuth();
   const { language } = usePreferences();
-  const [verify, setVerify] = useState('');
+  const [note, setNote] = useState('');
+  const [link, setLink] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function resend() {
+    setBusy(true);
+    setError('');
+    setNote('');
+    setLink('');
+    try {
+      const payload = await authApi.resend();
+      if (payload.data.alreadyVerified) {
+        const me = await authApi.me();
+        updateUser(me.data);
+        return;
+      }
+      setLink(payload.data.devVerifyUrl || '');
+      if (payload.data.verificationSent) setNote(t(language, 'verificationSentNote'));
+      else if (payload.data.mailStatus === 'failed') setError(t(language, 'verifySendFailed'));
+      else setNote(t(language, 'mailNotReady'));
+    } catch (err) {
+      setError(normalizeError(err).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="account-page">
       <header className="account-head">
@@ -79,12 +106,14 @@ export function AccountHome() {
       <section className="account-card">
         <p className="meta">{user?.email}</p>
         {!user?.emailVerified ? (
-          <button className="btn-ghost" type="button" onClick={async () => {
-            const payload = await authApi.resend();
-            setVerify(payload.data.devVerifyUrl || t(language, payload.data.verificationSent ? 'verificationSentNote' : 'mailNotReady'));
-          }}>{t(language, 'resendVerification')}</button>
+          <>
+            <p>{t(language, 'verifyAccountNote')}</p>
+            <button className="btn-ghost" type="button" disabled={busy} onClick={resend}>{busy ? t(language, 'sending') : t(language, 'resendVerification')}</button>
+            {note ? <p className="form-ok">{note}</p> : null}
+            {link ? <p className="meta"><a href={link}>{t(language, 'verifyDevLink')}</a></p> : null}
+            {error ? <p className="form-error">{error}</p> : null}
+          </>
         ) : <p className="form-ok">{t(language, 'emailVerified')}</p>}
-        {verify ? <p>{verify}</p> : null}
         <div className="account-actions">
           <button className="btn" type="button" onClick={logout}>{t(language, 'logout')}</button>
           <button className="btn-ghost" type="button" onClick={logoutAll}>{t(language, 'signOutEverywhere')}</button>

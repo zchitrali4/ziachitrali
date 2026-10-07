@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { authApi } from '../api/index.js';
 import { setAccessToken, setRefreshHandler } from '../api/http.js';
 
@@ -13,15 +13,23 @@ export function AuthProvider({ children }) {
     setUser(session?.user || null);
   }, []);
 
+  const refreshFlight = useRef(null);
   const refresh = useCallback(async () => {
-    try {
-      const payload = await authApi.refresh();
-      apply(payload.data);
-      return true;
-    } catch {
-      apply(null);
-      return false;
-    }
+    if (refreshFlight.current) return refreshFlight.current;
+    const job = (async () => {
+      try {
+        const payload = await authApi.refresh();
+        apply(payload.data);
+        return true;
+      } catch {
+        apply(null);
+        return false;
+      } finally {
+        refreshFlight.current = null;
+      }
+    })();
+    refreshFlight.current = job;
+    return job;
   }, [apply]);
 
   useEffect(() => {
@@ -45,12 +53,14 @@ export function AuthProvider({ children }) {
     try {
       await authApi.logout();
     } finally {
+      sessionStorage.removeItem('ieds.emailVerified');
       apply(null);
     }
   }, [apply]);
 
   const logoutAll = useCallback(async () => {
     await authApi.logoutAll();
+    sessionStorage.removeItem('ieds.emailVerified');
     apply(null);
   }, [apply]);
 

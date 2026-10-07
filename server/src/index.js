@@ -1,6 +1,7 @@
 import app from './app.js';
 import { connectDb } from './config/db.js';
 import { env } from './config/env.js';
+import { checkMail } from './services/mailService.js';
 
 async function start() {
   if (env.dbEnabled) {
@@ -12,6 +13,7 @@ async function start() {
   await new Promise((resolve, reject) => {
     const server = app.listen(env.port, () => {
       console.log(`Zia Chitrali API listening on port ${env.port}`);
+      checkMail();
       resolve();
     });
     server.on('error', reject);

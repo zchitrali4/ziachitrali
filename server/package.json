@@ -6,7 +6,7 @@
     "dev": "node --watch-path=./src --watch src/index.js",
     "start": "node src/index.js",
     "seed": "node src/seed.js",
-    "test": "node --test tests/pricing.test.js"
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
